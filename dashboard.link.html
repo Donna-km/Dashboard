@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Tracking Dashboard</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .custom-brown {
+            background: linear-gradient(135deg, #8B4513 0%, #A0522D 100%);
+        }
+        
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgba(139, 69, 19, 0.1), 0 2px 4px -1px rgba(139, 69, 19, 0.06);
+        }
+        
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #8B4513;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .stat-card {
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="bg-amber-50 min-h-screen">
+    <!-- Header -->
+    <header class="custom-brown text-white p-4 sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                    <span class="text-lg">🍽️</span>
+                </div>
+                <h1 class="text-xl font-semibold">Food Dashboard</h1>
+            </div>
+            <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                    <span class="text-sm" id="userInitial">👤</span>
+                </div>
+                <span class="text-sm" id="userName">Loading...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="fixed inset-0 bg-amber-50 flex items-center justify-center z-40">
+        <div class="text-center">
+            <div class="loading-spinner mx-auto mb-4"></div>
+            <p class="text-amber-800">กำลังโหลดข้อมูล...</p>
+        </div>
+    </div>
+
+    <!-- Error Screen -->
+    <div id="errorScreen" class="hidden fixed inset-0 bg-amber-50 flex items-center justify-center z-40">
+        <div class="text-center p-6">
+            <div class="text-6xl mb-4">⚠️</div>
+            <h2 class="text-xl font-semibold text-amber-800 mb-2">เกิดข้อผิดพลาด</h2>
+            <p class="text-amber-700 mb-4" id="errorMessage">ไม่สามารถโหลดข้อมูลได้</p>
+            <button onclick="location.reload()" class="bg-amber-800 text-white px-6 py-2 rounded-lg hover:bg-amber-900 transition-colors">
+                ลองใหม่
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main id="mainContent" class="hidden max-w-6xl mx-auto p-4 pb-20">
+        <!-- Time Period Selector -->
+        <div class="mb-6">
+            <div class="bg-white rounded-xl p-4 card-shadow">
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="changePeriod('daily')" class="period-btn px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-amber-800 text-white" data-period="daily">
+                        📅 รายวัน
+                    </button>
+                    <button onclick="changePeriod('weekly')" class="period-btn px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-amber-100 text-amber-800 hover:bg-amber-200" data-period="weekly">
+                        📊 รายสัปดาห์
+                    </button>
+                    <button onclick="changePeriod('monthly')" class="period-btn px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-amber-100 text-amber-800 hover:bg-amber-200" data-period="monthly">
+                        📈 รายเดือน
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-xl p-4 card-shadow stat-card">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-2xl">🔥</span>
+                    <span class="text-xs text-gray-500">แคลอรี่</span>
+                </div>
+                <div class="text-2xl font-bold text-amber-800" id="totalCalories">0</div>
+                <div class="text-sm text-gray-600">
+                    จาก <span id="tdeeValue">0</span> kcal
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div class="bg-amber-600 h-2 rounded-full transition-all duration-300" id="calorieProgress" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-4 card-shadow stat-card">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-2xl">🍖</span>
+                    <span class="text-xs text-gray-500">โปรตีน</span>
+                </div>
+                <div class="text-2xl font-bold text-red-600" id="totalProtein">0g</div>
+                <div class="text-sm text-gray-600">เป้าหมาย <span id="proteinGoal">0g</span></div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div class="bg-red-500 h-2 rounded-full transition-all duration-300" id="proteinProgress" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-4 card-shadow stat-card">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-2xl">🍞</span>
+                    <span class="text-xs text-gray-500">คาร์บ</span>
+                </div>
+                <div class="text-2xl font-bold text-blue-600" id="totalCarbs">0g</div>
+                <div class="text-sm text-gray-600">เป้าหมาย <span id="carbsGoal">0g</span></div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" id="carbsProgress" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-4 card-shadow stat-card">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-2xl">🥑</span>
+                    <span class="text-xs text-gray-500">ไฟต์</span>
+                </div>
+                <div class="text-2xl font-bold text-green-600" id="totalFat">0g</div>
+                <div class="text-sm text-gray-600">เป้าหมาย <span id="fatGoal">0g</span></div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div class="bg-green-500 h-2 rounded-full transition-all duration-300" id="fatProgress" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid lg:grid-cols-2 gap-6 mb-6">
+            <!-- Calorie Trend Chart -->
+            <div class="bg-white rounded-xl p-8 card-shadow">
+                <h3 class="text-xl font-semibold text-amber-800 mb-6">📈 แนวโน้มแคลอรี่</h3>
+                <div class="h-80">
+                    <canvas id="calorieChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Macronutrient Distribution -->
+            <div class="bg-white rounded-xl p-8 card-shadow">
+                <h3 class="text-xl font-semibold text-amber-800 mb-6">🥧 สัดส่วนสารอาหาร</h3>
+                <div class="h-80">
+                    <canvas id="macroChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Food Logs -->
+        <div class="bg-white rounded-xl p-6 card-shadow">
+            <h3 class="text-lg font-semibold text-amber-800 mb-4">📝 บันทึกอาหารล่าสุด</h3>
+            <div id="foodLogsList" class="space-y-3">
+                <div class="text-center text-gray-500 py-8">
+                    <div class="text-4xl mb-2">🍽️</div>
+                    <p>ไม่มีข้อมูลบันทึกอาหาร</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Configuration
+        const LIFF_ID = "YOUR_LIFF_ID"; // Replace with your actual LIFF ID
+        const SUPABASE_URL = "YOUR_SUPABASE_URL"; // Replace with your Supabase URL
+        const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY"; // Replace with your Supabase anon key
+
+        // Initialize Supabase
+        let supabase = null;
+        if (SUPABASE_URL !== "YOUR_SUPABASE_URL" && SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY") {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+
+        // Global variables
+        let currentUserId = null;
+        let currentPeriod = 'daily';
+        let userProfile = null;
+        let calorieChart = null;
+        let macroChart = null;
+
+        // Initialize the application
+        async function initApp() {
+            try {
+                // Check if we have real credentials or use demo mode
+                if (LIFF_ID === "YOUR_LIFF_ID" || SUPABASE_URL === "YOUR_SUPABASE_URL") {
+                    console.log('Using demo mode - credentials not configured');
+                    await initDemoMode();
+                    return;
+                }
+
+                // Initialize LIFF
+                await liff.init({ liffId: LIFF_ID });
+
+                // Check if user is logged in
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+
+                // Get user profile from LINE
+                const profile = await liff.getProfile();
+                currentUserId = profile.userId;
+                
+                // Update UI with user info
+                document.getElementById('userName').textContent = profile.displayName;
+                document.getElementById('userInitial').textContent = profile.displayName.charAt(0);
+
+                // Load user data
+                await loadUserData();
+                await loadFoodLogs();
+
+                // Hide loading screen and show main content
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('mainContent').classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Initialization error:', error);
+                // If real credentials fail, try demo mode
+                console.log('Real connection failed, switching to demo mode');
+                await initDemoMode();
+            }
+        }
+
+        // Initialize demo mode with sample data
+        async function initDemoMode() {
+            // Simulate loading delay
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // Set demo user info
+            document.getElementById('userName').textContent = 'Demo User';
+            document.getElementById('userInitial').textContent = 'D';
+            
+            // Set demo user profile
+            userProfile = {
+                tdee: 2200,
+                weight: 65,
+                protein_goal: 140,
+                carbs_goal: 275,
+                fat_goal: 73
+            };
+
+            // Update UI with demo profile data
+            document.getElementById('tdeeValue').textContent = userProfile.tdee;
+            document.getElementById('proteinGoal').textContent = userProfile.protein_goal + 'g';
+            document.getElementById('carbsGoal').textContent = userProfile.carbs_goal + 'g';
+            document.getElementById('fatGoal').textContent = userProfile.fat_goal + 'g';
+
+            // Generate demo food logs
+            const demoLogs = generateDemoLogs();
+            
+            // Update statistics and charts with demo data
+            updateStatistics(demoLogs);
+            updateCharts(demoLogs);
+            updateFoodLogsList(demoLogs);
+
+            // Hide loading screen and show main content
+            document.getElementById('loadingScreen').classList.add('hidden');
+            document.getElementById('mainContent').classList.remove('hidden');
+        }
+
+        // Generate demo food logs
+        function generateDemoLogs() {
+            const foods = [
+                { name: 'ข้าวผัดกุ้ง', calories: 450, protein: 25, carbs: 65, fat: 12 },
+                { name: 'ส้มตำ', calories: 120, protein: 3, carbs: 25, fat: 2 },
+                { name: 'ไก่ย่าง', calories: 280, protein: 35, carbs: 0, fat: 14 },
+                { name: 'แกงเขียวหวาน', calories: 320, protein: 20, carbs: 15, fat: 22 },
+                { name: 'ผลไม้รวม', calories: 80, protein: 1, carbs: 20, fat: 0 },
+                { name: 'ข้าวเหนียวมะม่วง', calories: 350, protein: 4, carbs: 75, fat: 8 },
+                { name: 'ต้มยำกุ้ง', calories: 200, protein: 15, carbs: 12, fat: 10 },
+                { name: 'ลาบหมู', calories: 180, protein: 22, carbs: 8, fat: 7 }
+            ];
+
+            const logs = [];
+            const today = new Date();
+
+            // Generate logs for the past 7 days
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                
+                // 2-4 meals per day
+                const mealsPerDay = Math.floor(Math.random() * 3) + 2;
+                
+                for (let j = 0; j < mealsPerDay; j++) {
+                    const food = foods[Math.floor(Math.random() * foods.length)];
+                    const portion = 0.7 + Math.random() * 0.6; // 0.7 to 1.3 portion
+                    
+                    logs.push({
+                        food_name: food.name,
+                        date: date.toISOString().split('T')[0],
+                        calories: Math.round(food.calories * portion),
+                        protein_g: Math.round(food.protein * portion),
+                        carbs_g: Math.round(food.carbs * portion),
+                        fat_g: Math.round(food.fat * portion),
+                        created_at: date.toISOString()
+                    });
+                }
+            }
+
+            return logs.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        // Load user profile data from Supabase
+        async function loadUserData() {
+            try {
+                const { data: profile, error: profileError } = await supabase
+                    .from("tdee_calculations")
+                    .select("tdee, weight, goal_calories")
+                    .eq("line_user_id", currentUserId)
+                    .single();
+
+                if (profileError) {
+                    console.error('Profile error:', profileError);
+                    // Set default values if no profile found
+                    userProfile = {
+                        tdee: 2000,
+                        weight: 70,
+                        goal_calories: 2000
+                    };
+                } else {
+                    userProfile = profile;
+                }
+
+                // Calculate nutrition goals based on TDEE (standard ratios)
+                const calories = userProfile.goal_calories || userProfile.tdee;
+                userProfile.protein_goal = Math.round((calories * 0.25) / 4); // 25% of calories from protein
+                userProfile.carbs_goal = Math.round((calories * 0.50) / 4);   // 50% of calories from carbs
+                userProfile.fat_goal = Math.round((calories * 0.25) / 9);     // 25% of calories from fat
+
+                // Update UI with profile data
+                document.getElementById('tdeeValue').textContent = userProfile.goal_calories || userProfile.tdee;
+                document.getElementById('proteinGoal').textContent = userProfile.protein_goal + 'g';
+                document.getElementById('carbsGoal').textContent = userProfile.carbs_goal + 'g';
+                document.getElementById('fatGoal').textContent = userProfile.fat_goal + 'g';
+
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                showError('ไม่สามารถโหลดข้อมูลผู้ใช้ได้');
+            }
+        }
+
+        // Load food logs based on current period
+        async function loadFoodLogs() {
+            try {
+                const dateRange = getDateRange(currentPeriod);
+                
+                const { data: logs, error: logsError } = await supabase
+                    .from("food_logs")
+                    .select("date, food_name, calories, protein_g, fat_g, carbs_g, created_at")
+                    .eq("line_userid", currentUserId)
+                    .gte("date", dateRange.start)
+                    .lte("date", dateRange.end)
+                    .order("date", { ascending: false });
+
+                if (logsError) {
+                    console.error('Logs error:', logsError);
+                    return;
+                }
+
+                // Update statistics
+                updateStatistics(logs);
+                
+                // Update charts
+                updateCharts(logs);
+                
+                // Update food logs list
+                updateFoodLogsList(logs);
+
+            } catch (error) {
+                console.error('Error loading food logs:', error);
+                showError('ไม่สามารถโหลดข้อมูลบันทึกอาหารได้');
+            }
+        }
+
+        // Get date range based on period
+        function getDateRange(period) {
+            const now = new Date();
+            let start, end;
+
+            switch (period) {
+                case 'daily':
+                    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+                    break;
+                case 'weekly':
+                    const weekStart = new Date(now);
+                    weekStart.setDate(now.getDate() - now.getDay());
+                    start = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate());
+                    end = new Date(start);
+                    end.setDate(start.getDate() + 6);
+                    end.setHours(23, 59, 59);
+                    break;
+                case 'monthly':
+                    start = new Date(now.getFullYear(), now.getMonth(), 1);
+                    end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+                    break;
+            }
+
+            return {
+                start: start.toISOString().split('T')[0],
+                end: end.toISOString().split('T')[0]
+            };
+        }
+
+        // Update statistics cards
+        function updateStatistics(logs) {
+            const totals = logs.reduce((acc, log) => {
+                acc.calories += log.calories || 0;
+                acc.protein += log.protein_g || 0;
+                acc.carbs += log.carbs_g || 0;
+                acc.fat += log.fat_g || 0;
+                return acc;
+            }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+            // Update values
+            document.getElementById('totalCalories').textContent = Math.round(totals.calories);
+            document.getElementById('totalProtein').textContent = Math.round(totals.protein) + 'g';
+            document.getElementById('totalCarbs').textContent = Math.round(totals.carbs) + 'g';
+            document.getElementById('totalFat').textContent = Math.round(totals.fat) + 'g';
+
+            // Update progress bars
+            const targetCalories = userProfile.goal_calories || userProfile.tdee;
+            const calorieProgress = Math.min((totals.calories / targetCalories) * 100, 100);
+            const proteinProgress = Math.min((totals.protein / userProfile.protein_goal) * 100, 100);
+            const carbsProgress = Math.min((totals.carbs / userProfile.carbs_goal) * 100, 100);
+            const fatProgress = Math.min((totals.fat / userProfile.fat_goal) * 100, 100);
+
+            document.getElementById('calorieProgress').style.width = calorieProgress + '%';
+            document.getElementById('proteinProgress').style.width = proteinProgress + '%';
+            document.getElementById('carbsProgress').style.width = carbsProgress + '%';
+            document.getElementById('fatProgress').style.width = fatProgress + '%';
+        }
+
+        // Update charts
+        function updateCharts(logs) {
+            updateCalorieChart(logs);
+            updateMacroChart(logs);
+        }
+
+        // Update calorie trend chart
+        function updateCalorieChart(logs) {
+            const ctx = document.getElementById('calorieChart').getContext('2d');
+            
+            // Group logs by date
+            const dailyCalories = {};
+            logs.forEach(log => {
+                const date = log.date;
+                if (!dailyCalories[date]) {
+                    dailyCalories[date] = 0;
+                }
+                dailyCalories[date] += log.calories || 0;
+            });
+
+            const dates = Object.keys(dailyCalories).sort();
+            const calories = dates.map(date => dailyCalories[date]);
+
+            if (calorieChart) {
+                calorieChart.destroy();
+            }
+
+            calorieChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates.map(date => new Date(date).toLocaleDateString('th-TH')),
+                    datasets: [{
+                        label: 'แคลอรี่',
+                        data: calories,
+                        borderColor: '#D97706',
+                        backgroundColor: 'rgba(217, 119, 6, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update macro distribution chart
+        function updateMacroChart(logs) {
+            const ctx = document.getElementById('macroChart').getContext('2d');
+            
+            const totals = logs.reduce((acc, log) => {
+                acc.protein += log.protein_g || 0;
+                acc.carbs += log.carbs_g || 0;
+                acc.fat += log.fat_g || 0;
+                return acc;
+            }, { protein: 0, carbs: 0, fat: 0 });
+
+            if (macroChart) {
+                macroChart.destroy();
+            }
+
+            macroChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['โปรตีน', 'คาร์บ', 'ไฟต์'],
+                    datasets: [{
+                        data: [totals.protein * 4, totals.carbs * 4, totals.fat * 9],
+                        backgroundColor: ['#DC2626', '#2563EB', '#16A34A'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update food logs list
+        function updateFoodLogsList(logs) {
+            const container = document.getElementById('foodLogsList');
+            
+            if (logs.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">🍽️</div>
+                        <p>ไม่มีข้อมูลบันทึกอาหาร</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = logs.slice(0, 10).map(log => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                            <span class="text-lg">🍽️</span>
+                        </div>
+                        <div>
+                            <div class="font-medium text-gray-900">${log.food_name || 'ไม่ระบุชื่อ'}</div>
+                            <div class="text-sm text-gray-500">${new Date(log.date).toLocaleDateString('th-TH')}</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-semibold text-amber-800">${Math.round(log.calories || 0)} kcal</div>
+                        <div class="text-xs text-gray-500">${Math.round(log.protein_g || 0)}P ${Math.round(log.carbs_g || 0)}C ${Math.round(log.fat_g || 0)}F</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Change time period
+        function changePeriod(period) {
+            currentPeriod = period;
+            
+            // Update button styles
+            document.querySelectorAll('.period-btn').forEach(btn => {
+                if (btn.dataset.period === period) {
+                    btn.className = 'period-btn px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-amber-800 text-white';
+                } else {
+                    btn.className = 'period-btn px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-amber-100 text-amber-800 hover:bg-amber-200';
+                }
+            });
+
+            // Reload data
+            loadFoodLogs();
+        }
+
+        // Show error screen
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('loadingScreen').classList.add('hidden');
+            document.getElementById('errorScreen').classList.remove('hidden');
+        }
+
+        // Initialize app when page loads
+        window.addEventListener('load', initApp);
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'968295ef75fdd334',t:'MTc1NDAyMjQ3NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
